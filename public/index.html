@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Music Sync</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #101827;
+      color: white;
+      max-width: 600px;
+      margin: 25px auto;
+      padding: 16px;
+    }
+    h1, h2 { color: #55e6c1; }
+    input, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 12px;
+      margin: 6px 0;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    button {
+      background: #55e6c1;
+      color: #101827;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .song {
+      background: #202d42;
+      padding: 12px;
+      border-radius: 8px;
+      margin: 8px 0;
+      overflow-wrap: anywhere;
+    }
+    .song button { margin-top: 8px; }
+    #status { color: #ffd166; }
+    audio { width: 100%; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🎵 Music Sync</h1>
+  <p>Listen to music together with your friends!</p>
+
+  <label>Room ID</label>
+  <input id="roomId" placeholder="Example: FRIENDS123">
+  <button id="joinBtn">Join Room</button>
+  <p id="status">Connect to a room to begin.</p>
+
+  <hr>
+
+  <h2>📤 Upload Music</h2>
+  <input type="file" id="musicFile" accept="audio/*">
+  <button id="uploadBtn">Upload Music for Everyone</button>
+
+  <hr>
+
+  <h2>🎶 Shared Playlist</h2>
+  <div id="playlist">Join a room to see its playlist.</div>
+
+  <h2>▶️ Now Playing</h2>
+  <p id="nowPlaying">No song selected</p>
+  <audio id="player" controls></audio>
+  <button id="playBtn">▶ Play for Everyone</button>
+  <button id="pauseBtn">⏸ Pause for Everyone</button>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const roomInput = document.getElementById("roomId");
+    const statusEl = document.getElementById("status");
+    const playlistEl = document.getElementById("playlist");
+    const fileInput = document.getElementById("musicFile");
+    const player = document.getElementById("player");
+    const nowPlaying = document.getElementById("nowPlaying");
+
+    let currentRoom = "";
+    let currentSongUrl = "";
+    let currentSongName = "";
+
+    document.getElementById("joinBtn").addEventListener("click", () => {
+      const room = roomInput.value.trim();
+
+      if (!/^[a-zA-Z0-9_-]{1,40}$/.test(room)) {
+        statusEl.textContent = "Enter a room ID using letters, numbers, _ or -.";
+        return;
+      }
+
+      currentRoom = room;
+      socket.emit("join-room", currentRoom);
+      statusEl.textContent = "Joining room...";
+    });
+
+    socket.on("room-joined", (room) => {
+      if (room !== currentRoom) return;
+      statusEl.textContent = "Connected to room: " + room;
+    });
+
+    socket.on("playlist-updated", (songs) => {
+      playlistEl.replaceChildren();
+
+      if (!songs || songs.length === 0) {
+        playlistEl.textContent = "No songs yet. Upload the first song!";
+        return;
+      }
+
+      songs.forEach((song, index) => {
+        const card = document.createElement("div");
+        card.className = "song";
+
+        const title = document.createElement("div");
+        title.textContent = (index + 1) + ". " + song.name;
+
+        const selectBtn = document.createElement("button");
+        selectBtn.textContent = "Select Song";
+        selectBtn.addEventListener("click", () => {
+          currentSongUrl = song.url;
+          currentSongName = song.name;
+          player.src = song.url;
+          nowPlaying.textContent = song.name;
+          statusEl.textContent = "Selected: " + song.name;
+        });
+
+        card.append(title, selectBtn);
+        playlistEl.appendChild(card);
+      });
+    });
+
+    document.getElementById("uploadBtn").addEventListener("click", async () => {
+      if (!currentRoom) {
+        statusEl.textContent = "Join a room first.";
+        return;
+      }
+
+      const file = fileInput.files[0];
+
+      if (!file) {
+        statusEl.textContent = "Choose an audio file first.";
+        return;
+      }
+
+      if (!file.type.startsWith("audio/")) {
+        statusEl.textContent = "Please choose an audio file.";
+        return;
+      }
+
+      if (file.size > 20 * 1024 * 1024) {
+        statusEl.textContent = "File must be 20 MB or smaller.";
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("music", file);
+
+      statusEl.textContent = "Uploading...";
+
+      try {
+        const response = await fetch("/upload", {
+          method: "POST",
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || "Upload failed");
+        }
+
+        currentSongUrl = result.url;
+        currentSongName = result.name;
+        player.src = result.url;
+        nowPlaying.textContent = result.name;
+
+        socket.emit("shared-music", {
+          roomId: currentRoom,
+          url: result.url,
+          name: result.name
+        });
+
+        statusEl.textContent = "Uploaded and added to the shared playlist!";
+        fileInput.value = "";
+      } catch (error) {
+        statusEl.textContent = error.message || "Upload failed.";
+      }
+    });
+
+    document.getElementById("playBtn").addEventListener("click", async () => {
+      if (!currentRoom || !currentSongUrl) {
+        statusEl.textContent = "Join a room and select a song first.";
+        return;
+      }
+
+      try {
+        await player.play();
+
+        socket.emit("play-music", {
+          roomId: currentRoom,
+          url: currentSongUrl,
+          name: currentSongName,
+          currentTime: player.currentTime
+        });
+      } catch (error) {
+        statusEl.textContent = "Tap Play on the audio player first if needed.";
+      }
+    });
+
+    document.getElementById("pauseBtn").addEventListener("click", () => {
+      if (!currentRoom) return;
+
+      player.pause();
+      socket.emit("pause-music", {
+        roomId: currentRoom
+      });
+    });
+
+    socket.on("sync-play", async (data) => {
+      if (data.roomId !== currentRoom) return;
+
+      if (data.url && player.src !== new URL(data.url, location.href).href) {
+        player.src = data.url;
+        currentSongUrl = data.url;
+        currentSongName = data.name || "Shared song";
+        nowPlaying.textContent = currentSongName;
+      }
+
+      if (typeof data.currentTime === "number") {
+        player.currentTime = data.currentTime;
+      }
+
+      try {
+        await player.play();
+      } catch (error) {
+        statusEl.textContent = "Tap Play on this phone to allow audio playback.";
+      }
+    });
+
+    socket.on("sync-pause", (data) => {
+      if (data.roomId === currentRoom) {
+        player.pause();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "appId": "com.vision49.musicsync",
+  "appName": "Music Sync",
+  "webDir": "public",
+  "server": {
+    "url": "https://shadowy-spider-p79x57xx9757hrq97-3000.app.github.dev/",
+    "cleartext": false
+  }
+}

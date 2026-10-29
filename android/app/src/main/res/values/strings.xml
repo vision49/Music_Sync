@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Music Sync</string>
+    <string name="title_activity_main">Music Sync</string>
+    <string name="package_name">com.vision49.musicsync</string>
+    <string name="custom_url_scheme">com.vision49.musicsync</string>
+</resources>
